@@ -6,7 +6,9 @@ A comprehensive, browser-based forging and crafting planner for **Rune Factory 4
 
 ## Live application
 
-[Open the R4FS Forge Calculator](https://r4fs-forge-calculator.noyoudontknowmi.chatgpt.site)
+[Open the R4FS Forge Calculator](https://jlng3.github.io/r4fs-forge-calculator/)
+
+The application is a public static website. It requires no account, login, or authentication.
 
 ## Features
 
@@ -54,7 +56,7 @@ Open the local URL printed by the development server.
 npm test
 ```
 
-The calculator data is bundled with the application. Internet access is not required for calculations after the application has been built and loaded; external source links naturally require a connection.
+The calculator data is bundled with the application. Internet access is not required for calculations after the application has loaded; external source links naturally require a connection.
 
 ## Repository layout
 
@@ -67,9 +69,14 @@ app/
   equipment-data.ts        Equipment base stats and native elements
   globals.css               Application styling
 tests/                      Rendered-output checks
-scripts/                    Reproducible install, build, and validation helpers
-worker/                     Production worker entry point
+.github/workflows/          Automated GitHub Pages deployment
 ```
+
+## Privacy
+
+The calculator has no login, authentication, analytics, advertising, database, or server-side user tracking. It does not send calculator inputs or personal information anywhere. User-created materials are stored only in the current browser's local storage and can be removed by clearing the site's browser data.
+
+GitHub Pages and the user's network provider may process ordinary web-server request metadata when serving static files; the calculator itself does not collect or retain that information.
 
 ## Accuracy and methodology
 

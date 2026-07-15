@@ -116,7 +116,7 @@ const BUILTIN_MATERIALS: Material[] = [
 ].map(m => ({...m,level:10})).filter((m, i, all) => all.findIndex(x => x.name === m.name) === i);
 
 const ARMOR_GROUPS = new Set<RecipeGroup>(["Armor","Shield","Headgear","Shoes","Accessory"]);
-const EQUIPMENT_DATA = new Map(EQUIPMENT_ROWS.map(row => {
+const EQUIPMENT_DATA = new Map<string, {base: Effects; element?: Element}>(EQUIPMENT_ROWS.map(row => {
   const [group,name,effectText,element] = row.split("|");
   const base: Effects = {};
   effectText.split(",").filter(Boolean).forEach(part => {
@@ -624,7 +624,7 @@ export default function Home() {
         <div className="phase-block"><div className="phase-title"><div><span className="step">1</span><h3>Crafting materials</h3></div><p>Required recipe ingredients are consumed without granting upgrade effects. Only extra slots and carried candidates can be selected with the Barrett toggles.</p></div>{renderSlots("forge",forge,6)}
           <div className="inheritance-planner"><div className="inheritance-head"><div><span className="eyebrow">INHERITANCE POOL</span><h4>Prior equipment candidates</h4><p>Add materials or matching shoes/accessories carried by an equipment ingredient, then toggle only the results Barrett confirms.</p></div><strong>{inheritanceCount}/3 selected</strong></div>
             {lineage.map(s=><div className="lineage-row" key={s.uid}><label><input type="checkbox" checked={s.contributes} disabled={!s.contributes && inheritanceCount>=3} onChange={e=>setInherited("lineage",s.uid,e.target.checked)}/><span><b>{s.material.name}</b><small>{s.material.equipment ? s.material.equipment.ability || `${s.material.equipment.group} has no additional recorded ability` : "Prior inherited upgrade-effect candidate"}</small></span></label><div className="slot-actions"><button className="icon-button replace-button" title={`Replace ${s.material.name} in this slot`} aria-label={`Replace ${s.material.name}`} onClick={()=>openPicker("lineage",null,s.uid)}>↻</button><button className="icon-button" aria-label={`Remove ${s.material.name}`} onClick={()=>removeSlot("lineage",s.uid)}>×</button></div></div>)}
-            <button className="add-row compact-add" onClick={()=>openPicker("lineage")}><span>＋</span><div><strong>Add candidate from equipment</strong><small>Use for an ingredient equipment's Barrett-listed materials or abilities</small></div></button>
+            <button className="add-row compact-add" onClick={()=>openPicker("lineage")}><span>＋</span><div><strong>Add candidate from equipment</strong><small>Use for an ingredient equipment&apos;s Barrett-listed materials or abilities</small></div></button>
           </div>
         </div>
         <div className="phase-block"><div className="phase-title"><div><span className="step">2</span><h3>Upgrade order</h3></div><p>Order matters. Repeats decay to 50%, 25%, 12.5%… while steels reference the prior printed effect.</p></div>{renderSlots("upgrade",upgrades,9)}</div>
@@ -647,7 +647,7 @@ export default function Home() {
         <div className="bonus-card"><div><span>Rarity bonus</span><strong>{result.totalRarity}/225</strong></div><div className="meter rarity"><i style={{width:`${Math.min(100,result.totalRarity/2.25)}%`}}/></div><small>{skillUnlocked ? effectSummary(result.rb) || "Below the first 25-point tier" : "Disabled until Forging/Crafting Lv. 50"}</small></div>
         <button className="details-toggle" onClick={()=>setDetails(!details)}><span>Calculation trace</span><span>{details?"−":"＋"}</span></button>
         {details && <ol className="trace">{result.trace.map((line,i)=><li key={i}>{line}</li>)}<li>Final: level total {result.totalLevel}; rarity total {result.totalRarity}.</li></ol>}
-        <div className="accuracy-note"><strong>Rule notes</strong><p>Final primary stats include core-stat conversion after all other effects: 1 STR = 1 ATK, 1 INT = 1 M.ATK, and 1 VIT = 0.5 DEF + 0.5 M.DEF. Weapons and Staffs can override same-category base stats directly or cross-category stats with Light Ore. Armor, Shields, and Headgear only support same-category base-stat overrides. Shoes and Accessories keep their own base stats and can inherit up to three same-category abilities. Donor level counts toward the level bonus; donor rarity and upgrade effects do not. Only a donor's native element transfers with a valid stat override.</p></div>
+        <div className="accuracy-note"><strong>Rule notes</strong><p>Final primary stats include core-stat conversion after all other effects: 1 STR = 1 ATK, 1 INT = 1 M.ATK, and 1 VIT = 0.5 DEF + 0.5 M.DEF. Weapons and Staffs can override same-category base stats directly or cross-category stats with Light Ore. Armor, Shields, and Headgear only support same-category base-stat overrides. Shoes and Accessories keep their own base stats and can inherit up to three same-category abilities. Donor level counts toward the level bonus; donor rarity and upgrade effects do not. Only a donor&apos;s native element transfers with a valid stat override.</p></div>
       </aside>
     </div>
 
@@ -865,7 +865,7 @@ function optimizeBuild(input:OptimizerInput):OptimizerPlan {
       }
       for(let nextLength=length+1;nextLength<=Math.min(effectSlots,length+2);nextLength++)craftBuckets[nextLength]=selectCraftStates(craftBuckets[nextLength],170);
     }
-    let craftBeam=selectCraftStates(craftBuckets[effectSlots],120);
+    const craftBeam=selectCraftStates(craftBuckets[effectSlots],120);
     if(!craftBeam.length)continue;
 
     const corePrefix=(targets.noRes||0)>=10&&recipe.type==="armor"?["Green Core","Red Core","Yellow Core","Blue Core"].map(name=>OPTIMIZER_MATERIALS.find(m=>m.name===name)!).filter(Boolean):[];

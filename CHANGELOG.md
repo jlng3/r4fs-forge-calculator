@@ -6,9 +6,35 @@ All notable changes to the R4FS Forge Calculator are documented here. The projec
 
 ### Planned
 
-- GitHub Pages packaging and deployment.
 - Installable offline/PWA distribution.
 - Optional desktop packaging after the web release stabilizes.
+
+## [0.1.1] - 2026-07-15
+
+### Added
+
+- Automated static deployment to GitHub Pages at
+  `https://jlng3.github.io/r4fs-forge-calculator/`.
+- Static-export validation for the repository subpath and public asset URLs.
+- A privacy section documenting local-only custom-material storage.
+
+### Changed
+
+- Replaced the ChatGPT Sites/Cloudflare Worker build with a static Next.js export.
+- Updated all public application links to use GitHub Pages exclusively.
+- Updated application metadata, title, description, and favicon paths for GitHub Pages.
+
+### Removed
+
+- ChatGPT authentication helpers and sign-in routes.
+- ChatGPT Sites hosting metadata and build plugins.
+- Cloudflare Worker, D1 database, R2 storage, Wrangler, Vinext, and example database scaffolding.
+- Generated font-cache dependencies; the interface now uses its existing system-font stack.
+
+### Privacy
+
+- The public calculator requires no login and collects no user identity or calculator input.
+- User-created materials remain only in that browser's local storage.
 
 ## [0.1.0] - 2026-07-15
 
