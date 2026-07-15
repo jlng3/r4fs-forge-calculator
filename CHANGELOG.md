@@ -4,6 +4,26 @@ All notable changes to the R4FS Forge Calculator are documented here. The projec
 
 ## [Unreleased]
 
+### Added
+
+- Separate visual rows for every acquisition method recorded for a material.
+- Bold, method-specific color labels for monster drops, monster produce, mining,
+  farming, fishing, field gathering, crafting, and other acquisition sources.
+
+### Changed
+
+- Ordered monster-drop entries by RF4 area progression, then alphabetically within
+  the same area; multi-location monsters now list their own locations from earliest
+  to latest without being split into duplicate entries.
+- Labelled monsters that share a drop location independently and expanded the
+  beast-like boss descriptions for Fur and Quality Fur.
+
+### Corrected
+
+- Fixed malformed or truncated acquisition descriptions affecting propellers,
+  Magic, Magic Crystal, Small Crystal, Gold, Iron, feathers, furs, shards, and
+  several shared-location monster drops.
+
 ### Planned
 
 - Installable offline/PWA distribution.

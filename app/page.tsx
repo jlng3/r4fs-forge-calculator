@@ -445,6 +445,31 @@ function effectsFor(material:Material, keys:EffectKey[]) {
   return shown.length ? shown.map(key=>{const meta=KEYS.find(item=>item.key===key)!; return `${meta.label} ${fmt(material.effects[key]!,meta.unit)}`;}).join(" · ") : "—";
 }
 
+const ACQUISITION_METHOD_CLASSES:Record<string,string> = {
+  "Monster drop":"method-monster-drop",
+  "Monster produce":"method-monster-produce",
+  "Mining":"method-mining",
+  "Farming":"method-farming",
+  "Fishing":"method-fishing",
+  "Field pickup":"method-field-pickup",
+  "Field work":"method-field-work",
+  "Wild plant":"method-wild-plant",
+  "Crafting":"method-crafting",
+  "Crafting/forging":"method-crafting-forging",
+  "Medicine mixing":"method-medicine-mixing",
+  "Gate drop":"method-gate-drop",
+  "Box drop":"method-box-drop",
+};
+
+function AcquisitionSource({source}:{source:string}) {
+  return <div className="acquisition-list">{source.split(" · ").map((entry,index)=>{
+    const marker=entry.indexOf(" — ");
+    const method=marker<0?entry:entry.slice(0,marker);
+    const details=marker<0?"":entry.slice(marker+3);
+    return <div className="acquisition-row" key={`${method}-${index}`}><strong className={`acquisition-method ${ACQUISITION_METHOD_CLASSES[method]||"method-other"}`}>{method}</strong>{details&&<span> — {details}</span>}</div>;
+  })}</div>;
+}
+
 function MaterialDatabase({materials}:{materials:Material[]}) {
   const [query,setQuery] = useState("");
   const [category,setCategory] = useState<string>("all");
@@ -469,7 +494,7 @@ function MaterialDatabase({materials}:{materials:Material[]}) {
       <div className="database-controls"><label><span>Material name</span><input placeholder="Search material name…" value={query} onChange={event=>setQuery(event.target.value)}/></label><label><span>Category</span><select value={category} onChange={event=>setCategory(event.target.value)}><option value="all">All categories</option>{[...CATEGORIES.filter(item=>!['Equipment','Raw Ingredients'].includes(item)),...DATABASE_INGREDIENT_CATEGORIES].map(item=><option key={item}>{item}</option>)}</select></label><label><span>Sort by</span><select value={sortKey} onChange={event=>setSortKey(event.target.value as "name"|EffectKey)}><option value="name">Material name</option>{sortOptions.map(key=><option value={key} key={key}>{KEYS.find(item=>item.key===key)?.label}</option>)}</select></label><button className="quiet sort-direction" onClick={()=>setSortDirection(value=>value==="asc"?"desc":"asc")}>{sortDirection === "asc" ? "↑ Ascending" : "↓ Descending"}</button></div>
       <div className="effect-filter-panel"><div className="effect-filter-head"><div><strong>Effect filters</strong><span>Every selected effect must be present</span></div>{selected.length>0&&<button className="quiet" onClick={()=>{setSelected([]);if(sortKey!=="name")setSortKey("name");}}>Clear {selected.length}</button>}</div>{DATABASE_EFFECT_GROUPS.map(group=><div className="effect-filter-group" key={group.title}><h3>{group.title}</h3><div>{group.keys.map(key=><button key={key} className={selected.includes(key)?"selected":""} aria-pressed={selected.includes(key)} onClick={()=>toggle(key)}>{KEYS.find(item=>item.key===key)?.label}</button>)}</div></div>)}</div>
       <div className="source-coverage"><p>Acquisition entries use the supplied <a href="https://therunefactory.fandom.com/wiki/Monsters_(RF4)" target="_blank" rel="noreferrer">RF4 monster table</a>, <a href="https://therunefactory.fandom.com/wiki/Crops_(RF4)" target="_blank" rel="noreferrer">RF4 crops table</a>, and <a href="https://therunefactory.fandom.com/wiki/Mining_(RF4)" target="_blank" rel="noreferrer">RF4 mining table</a>, plus the manually supplied special sources. Valid monster drops remain listed alongside the more common mining method.</p><details><summary>{unresolved.length} materials have no recorded acquisition source</summary><div>{unresolved.length ? unresolved.map(name=><span key={name}>{name}</span>) : <span>All recorded materials now have a source.</span>}</div></details></div>
-      <div className="database-table-wrap"><table className="database-table"><thead><tr><th>Material</th><th>Category</th><th>Acquisition / location</th><th>Stats</th><th>Status infliction</th><th>Elemental resistance</th><th>Status resistance</th><th>Special effects</th></tr></thead><tbody>{rows.map(material=><tr key={material.id}><td><strong>{material.name}</strong><small>Difficulty {material.difficulty ?? 0} · R{material.rarity}</small></td><td>{getMaterialDatabaseCategories(material.name,material.category).join(" · ") || "—"}</td><td className={!getMaterialSource(material.name)?"source-missing":""}>{getMaterialSource(material.name) || "No acquisition source recorded"}</td><td>{effectsFor(material,DATABASE_EFFECT_GROUPS[0].keys)}</td><td>{effectsFor(material,DATABASE_EFFECT_GROUPS[1].keys)}</td><td>{effectsFor(material,DATABASE_EFFECT_GROUPS[2].keys)}</td><td>{effectsFor(material,DATABASE_EFFECT_GROUPS[3].keys)}</td><td>{specialDescription(material)}</td></tr>)}</tbody></table>{rows.length===0&&<div className="database-empty"><strong>No materials match every selected condition.</strong><span>Remove an effect button or broaden the name/category filter.</span></div>}</div>
+      <div className="database-table-wrap"><table className="database-table"><thead><tr><th>Material</th><th>Category</th><th>Acquisition / location</th><th>Stats</th><th>Status infliction</th><th>Elemental resistance</th><th>Status resistance</th><th>Special effects</th></tr></thead><tbody>{rows.map(material=>{const source=getMaterialSource(material.name);return <tr key={material.id}><td><strong>{material.name}</strong><small>Difficulty {material.difficulty ?? 0} · R{material.rarity}</small></td><td>{getMaterialDatabaseCategories(material.name,material.category).join(" · ") || "—"}</td><td className={!source?"source-missing":""}>{source?<AcquisitionSource source={source}/>:"No acquisition source recorded"}</td><td>{effectsFor(material,DATABASE_EFFECT_GROUPS[0].keys)}</td><td>{effectsFor(material,DATABASE_EFFECT_GROUPS[1].keys)}</td><td>{effectsFor(material,DATABASE_EFFECT_GROUPS[2].keys)}</td><td>{effectsFor(material,DATABASE_EFFECT_GROUPS[3].keys)}</td><td>{specialDescription(material)}</td></tr>;})}</tbody></table>{rows.length===0&&<div className="database-empty"><strong>No materials match every selected condition.</strong><span>Remove an effect button or broaden the name/category filter.</span></div>}</div>
     </section>
   </div>;
 }
