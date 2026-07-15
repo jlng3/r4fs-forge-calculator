@@ -5,6 +5,7 @@ import { RECIPE_ROWS } from "./recipe-data";
 import { MATERIAL_ROWS } from "./material-data";
 import { EQUIPMENT_ROWS } from "./equipment-data";
 import { DATABASE_INGREDIENT_CATEGORIES, getMaterialDatabaseCategories, getMaterialSource } from "./material-source-data";
+import { coreStatConversions, crossCategoryDonorAvailability, optimizerMaterialAllowed, scaleSpecialWarning } from "./optimizer-rules";
 
 type ItemType = "weapon" | "staff" | "armor";
 type Element = "none" | "fire" | "water" | "earth" | "wind" | "light" | "dark" | "love" | "earth & wind" | "fire & water" | "light & dark" | "fire, water, earth & wind" | "fire, water, earth, wind, light & dark";
@@ -125,7 +126,7 @@ const EQUIPMENT_DATA = new Map<string, {base: Effects; element?: Element}>(EQUIP
   });
   return [`${group}|${name}`,{base,element:(element || undefined) as Element | undefined}] as const;
 }));
-const RECIPES: Recipe[] = RECIPE_ROWS.map(row => {
+export const RECIPES: Recipe[] = RECIPE_ROWS.map(row => {
   const [groupRaw,name,levelRaw,materialsRaw] = row.split("|");
   const group = groupRaw as RecipeGroup;
   const key = `${group}|${name}`;
@@ -395,15 +396,10 @@ function calculate(type: ItemType, group: RecipeGroup | undefined, recipeName: s
   if (type === "armor" && [...inherited,...upgrades].some(s=>s.material.element)) warnings.push("Elemental Crystal imbuement applies to weapons only; only the Crystal's printed stats apply here.");
   if (coreOrder.length && !orderedCoreBonus) warnings.push(type !== "armor" ? "The colored Core resistance bonus applies to armor only." : `Colored Cores must be exactly Green → Red → Yellow → Blue; current Core order is ${coreOrder.map(c=>c[0].toUpperCase()+c.slice(1)).join(" → ")}.`);
   const scaleUpgrades = upgrades.filter(s => s.material.category === "Scales");
-  if (scaleUpgrades.some(s => ["Wet Scale","Wet Scales"].includes(s.material.name))) warnings.push("Wet Scale does not enable shield-stat inheritance.");
-  if (scaleUpgrades.some(s => !["Wet Scale","Wet Scales"].includes(s.material.name)) && group !== "Shield") warnings.push("Non-Wet Scale shield inheritance only activates when the selected recipe is a Shield.");
+  const scaleWarning=scaleSpecialWarning(group,scaleUpgrades.map(slot=>slot.material.name));
+  if(scaleWarning)warnings.push(scaleWarning);
 
-  const coreConversions: Effects = {
-    atk:effects.str || 0,
-    matk:effects.int || 0,
-    def:(effects.vit || 0) * 0.5,
-    mdef:(effects.vit || 0) * 0.5,
-  };
+  const coreConversions: Effects = coreStatConversions(effects);
   const finalEffects: Effects = {...effects};
   addEffects(finalEffects,coreConversions);
   trace.push(`Core conversion: STR ${fmt(coreConversions.atk || 0)} ATK; INT ${fmt(coreConversions.matk || 0)} M.ATK; VIT ${fmt(coreConversions.def || 0)} DEF and ${fmt(coreConversions.mdef || 0)} M.DEF.`);
@@ -692,7 +688,7 @@ function ResultGroup({title,keys,effects}:{title:string;keys:EffectKey[];effects
 type OptimizerObjective = "achieve" | "power" | "lowRarity" | "maximize";
 type OptimizerCoreKey = "atk" | "matk" | "def" | "mdef";
 type OptimizerElement = Element | "any";
-type OptimizerInput = { recipe: Recipe; targets: Effects; element: OptimizerElement; useOverride: boolean; donorId: string; abilityNames: string[]; objective: OptimizerObjective; maximizeKeys: OptimizerCoreKey[] };
+type OptimizerInput = { recipe: Recipe; targets: Effects; element: OptimizerElement; useOverride: boolean; crossCategoryDonor: boolean; donorId: string; abilityNames: string[]; objective: OptimizerObjective; maximizeKeys: OptimizerCoreKey[] };
 type OptimizerPlan = {
   error?: string;
   feasible: boolean;
@@ -753,19 +749,19 @@ function optimizerRequiredSlots(recipe:Recipe):Slot[] {
   });
 }
 
-function optimizerCandidates(targets:Effects,element:OptimizerElement,maximizeKeys:OptimizerCoreKey[]):Material[] {
+function optimizerCandidates(recipe:Recipe,targets:Effects,element:OptimizerElement,maximizeKeys:OptimizerCoreKey[]):Material[] {
+  const pool=OPTIMIZER_MATERIALS.filter(material=>optimizerMaterialAllowed(material,recipe));
   const chosen=new Map<string,Material>();
   const add=(m:Material|undefined)=>{if(m)chosen.set(normalizeMaterialName(m.name),m)};
-  ["Double Steel","10-Fold Steel","Object X","Mealy Apple"].forEach(name=>add(OPTIMIZER_MATERIALS.find(m=>m.name===name)));
-  if ((targets.noRes||0)>=10) ["Green Core","Red Core","Yellow Core","Blue Core"].forEach(name=>add(OPTIMIZER_MATERIALS.find(m=>m.name===name)));
-  if (element!=="any" && element!=="none") add(OPTIMIZER_MATERIALS.find(m=>m.element===element));
+  ["Double Steel","10-Fold Steel","Object X","Mealy Apple"].forEach(name=>add(pool.find(m=>m.name===name)));
+  if (element!=="any" && element!=="none") add(pool.find(m=>m.element===element));
   maximizeKeys.forEach(key=>{
-    OPTIMIZER_MATERIALS.slice().sort((a,b)=>materialTargetValue(b,key)-materialTargetValue(a,key)).filter(m=>materialTargetValue(m,key)>0).slice(0,12).forEach(add);
+    pool.slice().sort((a,b)=>materialTargetValue(b,key)-materialTargetValue(a,key)).filter(m=>materialTargetValue(m,key)>0).slice(0,12).forEach(add);
   });
   (Object.keys(targets) as EffectKey[]).filter(k=>(targets[k]||0)>0).forEach(key=>{
-    OPTIMIZER_MATERIALS.slice().sort((a,b)=>materialTargetValue(b,key)-materialTargetValue(a,key)).filter(m=>materialTargetValue(m,key)>0).slice(0,7).forEach(add);
+    pool.slice().sort((a,b)=>materialTargetValue(b,key)-materialTargetValue(a,key)).filter(m=>materialTargetValue(m,key)>0).slice(0,7).forEach(add);
   });
-  OPTIMIZER_MATERIALS.slice().sort((a,b)=>b.rarity-a.rarity).slice(0,4).forEach(add);
+  pool.slice().sort((a,b)=>b.rarity-a.rarity).slice(0,8).forEach(add);
   return Array.from(chosen.values()).slice(0,38);
 }
 
@@ -790,8 +786,8 @@ function optimizerScore(result:ReturnType<typeof calculate>,targets:Effects,elem
   return score;
 }
 
-function optimizeBuild(input:OptimizerInput):OptimizerPlan {
-  const {recipe,targets,element,useOverride,donorId,abilityNames,objective,maximizeKeys}=input;
+export function optimizeBuild(input:OptimizerInput):OptimizerPlan {
+  const {recipe,targets,element,useOverride,crossCategoryDonor,donorId,abilityNames,objective,maximizeKeys}=input;
   const required=optimizerRequiredSlots(recipe);
   if(objective==="maximize"&&!maximizeKeys.length) return emptyOptimizerPlan(recipe,required,"Choose one or two effective core stats to maximize.",objective,maximizeKeys);
   const abilityMaterials=abilityNames.map(name=>EQUIPMENT_MATERIALS.find(m=>m.name===name)).filter((m):m is Material=>Boolean(m));
@@ -801,11 +797,13 @@ function optimizeBuild(input:OptimizerInput):OptimizerPlan {
   let donorMaterials:(Material|undefined)[]=[undefined];
   if(useOverride) {
     if(!BASE_OVERRIDE_GROUPS.has(recipe.group)) return emptyOptimizerPlan(recipe,required,`${recipe.group} does not support base-stat overriding.`);
+    const crossCategoryAvailability=crossCategoryDonorAvailability(recipe,required.length);
+    if(crossCategoryDonor&&!crossCategoryAvailability.allowed)return emptyOptimizerPlan(recipe,required,crossCategoryAvailability.reason);
     const compatible=EQUIPMENT_MATERIALS.filter(m=>{
       const source=m.equipment?.group;
       if(!source)return false;
-      if(["Armor","Shield","Headgear"].includes(recipe.group))return source===recipe.group;
-      return LIGHT_ORE_GROUPS.has(recipe.group)&&LIGHT_ORE_GROUPS.has(source);
+      if(crossCategoryDonor)return LIGHT_ORE_GROUPS.has(recipe.group)&&LIGHT_ORE_GROUPS.has(source)&&source!==recipe.group;
+      return source===recipe.group;
     });
     if(donorId!=="auto") donorMaterials=[compatible.find(m=>m.id===donorId)].filter((m):m is Material=>Boolean(m));
     else donorMaterials=compatible.sort((a,b)=>{
@@ -816,7 +814,7 @@ function optimizeBuild(input:OptimizerInput):OptimizerPlan {
     if(!donorMaterials.length)return emptyOptimizerPlan(recipe,required,"No compatible donor equipment is available.");
   }
 
-  const candidates=optimizerCandidates(targets,element,maximizeKeys);
+  const candidates=optimizerCandidates(recipe,targets,element,maximizeKeys);
   const craftCandidates=candidates.filter(m=>!OPTIMIZER_UPGRADE_ONLY.has(m.name));
   const filler=OPTIMIZER_MATERIALS.filter(m=>!m.special).sort((a,b)=>b.rarity-a.rarity)[0];
   let best:OptimizerPlan|undefined;
@@ -1035,6 +1033,7 @@ function BuildOptimizer() {
   const [targets,setTargets]=useState<Effects>({});
   const [element,setElement]=useState<OptimizerElement>("any");
   const [useOverride,setUseOverride]=useState(false);
+  const [crossCategoryDonor,setCrossCategoryDonor]=useState(false);
   const [donorId,setDonorId]=useState("auto");
   const [inheritAbilities,setInheritAbilities]=useState(false);
   const [abilityNames,setAbilityNames]=useState<string[]>([]);
@@ -1044,10 +1043,11 @@ function BuildOptimizer() {
   const [running,setRunning]=useState(false);
   const recipe=RECIPES.find(r=>r.id===recipeId);
   const visibleRecipes=RECIPES.filter(r=>!recipeSearch.trim()||`${r.name} ${r.group}`.toLowerCase().includes(recipeSearch.toLowerCase()));
+  const crossCategoryAvailability=recipe?crossCategoryDonorAvailability(recipe,recipe.requirements.length):{allowed:false,reason:"Choose equipment first."};
   const donorOptions=recipe?EQUIPMENT_MATERIALS.filter(m=>{
     if(!m.equipment)return false;
-    if(["Armor","Shield","Headgear"].includes(recipe.group))return m.equipment.group===recipe.group;
-    return LIGHT_ORE_GROUPS.has(recipe.group)&&LIGHT_ORE_GROUPS.has(m.equipment.group);
+    if(crossCategoryDonor)return crossCategoryAvailability.allowed&&LIGHT_ORE_GROUPS.has(recipe.group)&&LIGHT_ORE_GROUPS.has(m.equipment.group)&&m.equipment.group!==recipe.group;
+    return m.equipment.group===recipe.group;
   }):[];
   const abilityOptions=recipe&&["Accessory","Shoes"].includes(recipe.group)?EQUIPMENT_MATERIALS.filter(m=>m.equipment?.group===recipe.group&&m.equipment.ability):[];
   const toggleMaximizeKey=(key:OptimizerCoreKey)=>setMaximizeKeys(current=>current.includes(key)?current.filter(k=>k!==key):current.length<2?[...current,key]:[current[1],key]);
@@ -1055,17 +1055,17 @@ function BuildOptimizer() {
     if(!recipe){setPlan(null);return}
     setRunning(true);
     setTimeout(()=>{
-      setPlan(optimizeBuild({recipe,targets,element,useOverride,donorId,abilityNames:inheritAbilities?abilityNames:[],objective,maximizeKeys}));
+      setPlan(optimizeBuild({recipe,targets,element,useOverride,crossCategoryDonor,donorId,abilityNames:inheritAbilities?abilityNames:[],objective,maximizeKeys}));
       setRunning(false);
     },20);
   };
   return <div className="optimizer-workspace">
     <section className="panel optimizer-input">
       <div className="section-head"><div><span className="eyebrow">GOAL INPUT</span><h2>Build optimizer</h2><p className="optimizer-intro">Set minimum outcomes or maximize effective core stats. The search assumes Forging/Crafting Lv. 50+ and Level 10 materials.</p></div></div>
-      <div className="optimizer-recipe"><label><span>Find equipment</span><input placeholder="Search recipe…" value={recipeSearch} onChange={e=>setRecipeSearch(e.target.value)}/></label><label><span>Equipment</span><select value={recipeId} onChange={e=>{setRecipeId(e.target.value);setPlan(null);setAbilityNames([]);setUseOverride(false)}}><option value="">Choose equipment…</option>{Array.from(new Set(visibleRecipes.map(r=>r.group))).map(group=><optgroup key={group} label={group}>{visibleRecipes.filter(r=>r.group===group).map(r=><option key={r.id} value={r.id}>{r.name} · Lv {r.level}</option>)}</optgroup>)}</select></label></div>
+      <div className="optimizer-recipe"><label><span>Find equipment</span><input placeholder="Search recipe…" value={recipeSearch} onChange={e=>setRecipeSearch(e.target.value)}/></label><label><span>Equipment</span><select value={recipeId} onChange={e=>{setRecipeId(e.target.value);setPlan(null);setAbilityNames([]);setUseOverride(false);setCrossCategoryDonor(false);setDonorId("auto")}}><option value="">Choose equipment…</option>{Array.from(new Set(visibleRecipes.map(r=>r.group))).map(group=><optgroup key={group} label={group}>{visibleRecipes.filter(r=>r.group===group).map(r=><option key={r.id} value={r.id}>{r.name} · Lv {r.level}</option>)}</optgroup>)}</select></label></div>
       <div className="optimizer-options"><label><span>Desired element</span><select value={element} onChange={e=>setElement(e.target.value as OptimizerElement)}><option value="any">Any</option><option value="none">Non-elemental</option>{ELEMENTS.map(e=><option key={e.key} value={e.key}>{e.label}</option>)}</select></label><label><span>Optimization goal</span><select value={objective} onChange={e=>{setObjective(e.target.value as OptimizerObjective);setPlan(null)}}><option value="achieve">Meet all minimums</option><option value="maximize">Maximize core stat(s)</option><option value="power">Exceed entered targets</option><option value="lowRarity">Meet targets with lower rarity</option></select></label></div>
       {objective==="maximize"&&<div className="maximize-stat-picker"><div><b>Effective stats to maximize</b><small>Choose one or two. ATK includes STR, M.ATK includes INT, and DEF/M.DEF each include 0.5 × VIT.</small></div><div>{(["atk","matk","def","mdef"] as OptimizerCoreKey[]).map(key=><button type="button" key={key} className={maximizeKeys.includes(key)?"selected":""} onClick={()=>toggleMaximizeKey(key)}>{KEYS.find(k=>k.key===key)?.label}</button>)}</div></div>}
-      {recipe&&BASE_OVERRIDE_GROUPS.has(recipe.group)&&<div className="optimizer-toggle-card"><label><input type="checkbox" checked={useOverride} onChange={e=>setUseOverride(e.target.checked)}/><span><b>Use a base-stat donor</b><small>Consumes one extra crafting slot; cross-category Weapon/Staff donors also consume one Light Ore slot.</small></span></label>{useOverride&&<select value={donorId} onChange={e=>setDonorId(e.target.value)}><option value="auto">Auto-select best donor</option>{donorOptions.map(m=><option key={m.id} value={m.id}>{m.name} · {m.equipment?.group}</option>)}</select>}</div>}
+      {recipe&&BASE_OVERRIDE_GROUPS.has(recipe.group)&&<div className="optimizer-toggle-card"><label><input type="checkbox" checked={useOverride} onChange={e=>{setUseOverride(e.target.checked);if(!e.target.checked){setCrossCategoryDonor(false);setDonorId("auto")}}}/><span><b>Use a base-stat donor</b><small>Consumes one extra crafting slot. The default search uses donors from the same equipment category.</small></span></label>{useOverride&&<><label><input type="checkbox" checked={crossCategoryDonor} disabled={!crossCategoryAvailability.allowed} onChange={e=>{setCrossCategoryDonor(e.target.checked);setDonorId("auto");setPlan(null)}}/><span><b>Use a cross-category donor with Light Ore</b><small>{crossCategoryAvailability.reason}</small></span></label><select value={donorId} onChange={e=>setDonorId(e.target.value)}><option value="auto">Auto-select best {crossCategoryDonor?"cross-category":"same-category"} donor</option>{donorOptions.map(m=><option key={m.id} value={m.id}>{m.name} · {m.equipment?.group}</option>)}</select></>}</div>}
       {recipe&&["Accessory","Shoes"].includes(recipe.group)&&<div className="optimizer-toggle-card"><label><input type="checkbox" checked={inheritAbilities} onChange={e=>{setInheritAbilities(e.target.checked);if(!e.target.checked)setAbilityNames([])}}/><span><b>Inherit extra special effects</b><small>Select up to three same-category effects. Each consumes an empty crafting slot and one Barrett inheritance result.</small></span></label>{inheritAbilities&&<select multiple size={6} value={abilityNames} onChange={e=>setAbilityNames(Array.from(e.target.selectedOptions).map(o=>o.value).slice(0,3))}>{abilityOptions.map(m=><option key={m.id} value={m.name}>{m.name} — {m.equipment?.ability}</option>)}</select>}</div>}
       <div className="optimizer-targets">{OPTIMIZER_TARGET_GROUPS.map((group,index)=><details key={group.title} open={index===0}><summary>{group.title}<span>{group.keys.filter(k=>(targets[k]||0)>0).length} targets</span></summary><div className="target-grid">{group.keys.map(key=>{const meta=KEYS.find(k=>k.key===key)!;return <label key={key}><span>{meta.label}{meta.unit||""}</span><input type="number" min="0" step="0.5" placeholder="No minimum" value={targets[key]||""} onChange={e=>setTargets({...targets,[key]:Math.max(0,Number(e.target.value))})}/></label>})}</div></details>)}</div>
       <button className="primary optimizer-run" disabled={!recipe||running||(objective==="maximize"&&!maximizeKeys.length)} onClick={run}>{running?"Searching materials and sequences…":objective==="maximize"?"Find highest effective stats":"Generate optimized plan"}</button>
@@ -1097,7 +1097,9 @@ function OptimizerPlanView({plan,targets}:{plan:OptimizerPlan;targets:Effects}) 
     {plan.result.specialEffects.length>0&&<div className="special-effects"><strong>Active special effects</strong><ul>{plan.result.specialEffects.map((x,i)=><li key={i}>{x}</li>)}</ul></div>}
     {plan.result.warnings.length>0&&<div className="rule-warnings"><strong>Plan warnings</strong><ul>{plan.result.warnings.map((x,i)=><li key={i}>{x}</li>)}</ul></div>}
     <ResultGroup title="Core stats" keys={["str","vit","int","crit","range"]} effects={plan.result.effects}/>
+    <ResultGroup title="Status infliction" keys={["poisonAtk","sealAtk","paralysisAtk","sleepAtk","fatigueAtk","sickAtk","faintAtk","drainAtk"]} effects={plan.result.effects}/>
     <ResultGroup title="Elemental resistance" keys={["fireRes","waterRes","earthRes","windRes","lightRes","darkRes","loveRes","noRes"]} effects={plan.result.effects}/>
+    <ResultGroup title="Status resistance" keys={["poisonRes","sealRes","paralysisRes","sleepRes","fatigueRes","sickRes","faintRes","drainRes","critRes","dizRes","knockRes"]} effects={plan.result.effects}/>
     <p className="optimizer-target-summary">{maximizing?"Maximization uses final effective values, so STR contributes to ATK, INT to M.ATK, and VIT contributes 0.5 each to DEF and M.DEF.":`Validated against ${Object.values(targets).filter(v=>(v||0)>0).length} numeric target(s), including STR/INT/VIT conversion and level/rarity bonuses.`}</p>
   </div>;
 }

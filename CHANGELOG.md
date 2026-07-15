@@ -6,23 +6,81 @@ All notable changes to the R4FS Forge Calculator are documented here. The projec
 
 ### Added
 
-- Separate visual rows for every acquisition method recorded for a material.
-- Bold, method-specific color labels for monster drops, monster produce, mining,
-  farming, fishing, field gathering, crafting, and other acquisition sources.
+- Added separate visual rows for every acquisition method recorded for a material,
+  so monster drops, monster produce, mining, farming, fishing, field gathering,
+  crafting, and other sources are no longer compressed into one paragraph.
+- Added bold, method-specific acquisition labels with distinct symbolic colors while
+  preserving the normal text color for locations and source details.
+- Added complete Status Infliction and Status Resistance sections to Build Optimizer
+  results. Successful plans now display the actual values attained for every active
+  status target instead of only showing core stats and elemental resistance.
+- Added an explicit donor-scope choice for Weapons and Staffs. Users can compare a
+  same-category base-stat donor against a cross-category donor that consumes a second
+  crafting slot for Light Ore.
+- Added slot-aware donor guidance: cross-category selection is enabled only when a
+  Weapon or Staff recipe has at least two empty crafting slots, reports when there is
+  no room for Light Ore, and explains that other equipment categories cannot use
+  cross-category base-stat inheritance.
+- Added regression coverage for acquisition parsing, complete RF4 area progression,
+  shared-location monster labels, donor-slot eligibility, category-aware optimizer
+  materials, Scale handling, and STR/INT/VIT combat-stat conversion.
 
 ### Changed
 
-- Ordered monster-drop entries by RF4 area progression, then alphabetically within
-  the same area; multi-location monsters now list their own locations from earliest
-  to latest without being split into duplicate entries.
-- Labelled monsters that share a drop location independently and expanded the
-  beast-like boss descriptions for Fur and Quality Fur.
+- Ordered monster-drop sources by RF4 area progression, then alphabetically by monster
+  name within the same first-available area. Locations inside a multi-location monster
+  entry are also ordered from earliest to latest without splitting that monster into
+  duplicate records.
+- Labelled monsters independently when two or more monsters share the same location,
+  including propellers, Pirate's Armor, Shoulder Piece, Quality Cloth, and Rune Crystal
+  sources.
+- Expanded the Fur and Quality Fur acquisition descriptions to identify the applicable
+  beast-like bosses rather than relying on an unexplained generic family label.
+- Made optimizer candidate selection equipment-aware. Materials whose conditional
+  special would invalidate a plan are excluded from that search context, while their
+  legitimate printed stats remain available where the game allows them.
+- Changed base-stat donor searches to use same-category equipment by default. The new
+  cross-category option deliberately searches other Weapon/Staff categories and inserts
+  Light Ore, making the two inheritance strategies directly comparable.
+- Filtered automatic donors by the recipe's remaining crafting slots before ranking
+  their stats. A high-stat cross-category donor is no longer considered when the recipe
+  cannot fit both that equipment and Light Ore.
+- Centralized effective core-stat conversion so optimizer scoring and final output share
+  the same rules: 1 STR = 1 ATK, 1 INT = 1 M.ATK, and 1 VIT = 0.5 DEF plus 0.5 M.DEF.
+- Restored Scale printed stats to optimizer searches for Weapons, Staffs, Armor,
+  Headgear, Shoes, Accessories, and Shields. The non-Wet Scale shield-inheritance special
+  remains conditional to Shields, but that conditional effect no longer prevents other
+  equipment from using a Scale's ordinary upgrade stats.
 
 ### Corrected
 
-- Fixed malformed or truncated acquisition descriptions affecting propellers,
-  Magic, Magic Crystal, Small Crystal, Gold, Iron, feathers, furs, shards, and
-  several shared-location monster drops.
+- Fixed malformed, truncated, or incorrectly joined acquisition descriptions affecting
+  propellers, Magic, Magic Crystal, Small Crystal, Gold, Iron, feathers, furs, shards,
+  shared-location monsters, and names containing the letters `or`.
+- Fixed the optimizer returning `No valid slot layout was found` for nearly every
+  equipment category. High-stat Scales and colored Cores had dominated the candidate
+  pool, then caused every non-Shield finalist to be discarded by conditional warnings.
+- Fixed automatic donor selection for recipes with limited empty slots. Dragon Slayer
+  can now use Rune Legend as a same-category donor, while its cross-category option is
+  correctly disabled because five required ingredients leave no room for Light Ore.
+- Fixed core-stat maximization being artificially low because all Scales were excluded
+  outside Shield searches. Firewyrm Scale now contributes its STR to weapon ATK, Blue
+  Scale contributes INT to staff M.ATK, and Earthwyrm/Grimoire Scale VIT contributes to
+  both DEF and M.DEF across armor categories.
+- Limited the Wet Scale warning to Shields, where it specifically fails to activate the
+  shield-stat inheritance special. Wet Scale's printed stats remain valid elsewhere.
+
+### Validation
+
+- Verified every recipe category can produce a warning-free maximization plan: all
+  weapon classes, Staffs, farm Tools, Shields, Headgear, Armor, Shoes, and Accessories.
+- Verified Dragon Slayer with Rune Legend and inherited Firewyrm Scales reaches 16,914
+  effective ATK: 12,424 raw ATK plus 4,490 from STR, exceeding the reported 16,684
+  manual benchmark.
+- Verified a Staff maximization case at 19,750 effective M.ATK: 15,260 raw M.ATK plus
+  4,490 from INT.
+- Verified an Armor maximization case at 7,010 effective DEF: 4,755 raw DEF plus 2,255
+  from 4,510 VIT; the same VIT correctly contributes 2,255 M.DEF.
 
 ### Planned
 
