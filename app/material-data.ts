@@ -207,7 +207,7 @@ export const MATERIAL_ROWS = [
   "Proof of Rank|Misc.|77|13|str:15,int:48,faintRes:15|",
   "Throne of the Empire|Misc.|97|14|int:-5,knock:30|",
   "White Stone|Misc.|30|13||Greatly reduces damage when used on a family member's equipment",
-  "Rare Can|Misc.|5|0||Improves rare-item drop chance when used on a weapon",
+  "Rare Can|Misc.|5|0||Weapon upgrade only: increases rare-item drop rate by approximately 3%; stacks with one Clover effect but not another Rare Can",
 
   // Other Items — Grasses
   "Withered Grass|Grasses|1|0|vit:-1|Also improves soil quality when tilled",
@@ -290,7 +290,7 @@ export const MATERIAL_ROWS = [
   "Pom-Pom Grass|Raw Ingredients|28|4|poisonAtk:3,poisonRes:5|Regular flower",
   "Lamp Grass|Raw Ingredients|28|4|int:3|Regular flower",
   "Ironleaf|Raw Ingredients|29|4|atk:4|Regular flower",
-  "4-Leaf Clover|Raw Ingredients|29|4||Weapon upgrade only: increases item drop rate by approximately 11%",
+  "4-Leaf Clover|Raw Ingredients|29|4||Equipment upgrade only: increases item drop rate by approximately 11%; does not stack with another Clover",
   "Autumn Grass|Raw Ingredients|35|5|sleepRes:6|Regular flower",
   "Noel Grass|Raw Ingredients|41|6|int:7|Regular flower",
   "Fireflower|Raw Ingredients|41|6|str:2,int:6|Regular flower",
@@ -310,8 +310,8 @@ export const MATERIAL_ROWS = [
   "King Pom-Pom Grass|Raw Ingredients|52|8|poisonAtk:15,poisonRes:19|Giant flower",
   "Kaiser Lamp Grass|Raw Ingredients|52|8|int:10|Giant flower",
   "Super Ironleaf|Raw Ingredients|52|8|atk:18|Giant flower",
-  "Great 4-Leaf Clover|Raw Ingredients|52|8||Giant 4-Leaf Clover; weapon upgrade only: increases item drop rate by approximately 11%",
-  "Giant 4-Leaf Clover|Raw Ingredients|52|8||Alias of Great 4-Leaf Clover; weapon upgrade only: increases item drop rate by approximately 11%",
+  "Great 4-Leaf Clover|Raw Ingredients|52|8||Giant 4-Leaf Clover; same equipment-upgrade item-drop effect as 4-Leaf Clover with higher rarity only",
+  "Giant 4-Leaf Clover|Raw Ingredients|52|8||Alias of Great 4-Leaf Clover; same equipment-upgrade item-drop effect as 4-Leaf Clover with higher rarity only",
   "Big Autumn Grass|Raw Ingredients|57|9|sleepRes:25|Giant flower",
   "Large Noel Grass|Raw Ingredients|63|10|int:22|Giant flower",
   "Big Fireflower|Raw Ingredients|64|10|str:10,int:18|Giant flower",

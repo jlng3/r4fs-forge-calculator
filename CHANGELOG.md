@@ -6,6 +6,22 @@ All notable changes to the R4FS Forge Calculator are documented here. The projec
 
 ### Added
 
+- Added optimizer requirements for Clover item-drop boost, Rare Can rare-item drop
+  boost, Invisible Stone, Shade Stone, and the complete Four-Core sequence. These
+  are treated as hard requirements and reserve their upgrade slots before the
+  remaining stat search begins.
+- Added category-derived attack range for Short Swords (1.0), Long Swords (1.2),
+  Spears (1.8), Axes (1.0), Hammers (1.0), Dual Blades (0.95), and Gloves (0.95),
+  with a universal maximum of 4.0. Staffs and farm tools have no range target.
+- Added an attainable-value range selector to the optimizer. It exposes only values
+  reachable from the selected weapon category, available upgrade slots, repeat decay,
+  Raccoon Leaf, Glitta Augite, Double Steel, and 10-Fold Steel.
+- Added an explicit opt-in for the Glitta Augite -> 10-Fold Steel range combination.
+  The optimizer does not spend 10-Fold Steel on that combination unless requested.
+- Added a non-blocking manual-calculator warning for incomplete or out-of-order
+  colored Cores. It states that the resistance effect is inactive until all four are
+  used as Green -> Red -> Yellow -> Blue, while confirming that intentional partial
+  use still contributes printed stats and level/rarity values.
 - Added separate visual rows for every acquisition method recorded for a material,
   so monster drops, monster produce, mining, farming, fishing, field gathering,
   crafting, and other sources are no longer compressed into one paragraph.
@@ -27,6 +43,22 @@ All notable changes to the R4FS Forge Calculator are documented here. The projec
 
 ### Changed
 
+- Made weapon range belong to the crafted weapon category. Same-category and
+  Light-Ore cross-category base-stat donors cannot replace the crafted weapon's
+  native range.
+- Made Raccoon Leaf and Glitta Augite range bonuses participate in the normal
+  sequential upgrade calculation, including repeat decay, Object X polarity, and
+  valid Double Steel or 10-Fold Steel multiplication, before applying the 4.0 cap.
+- Updated 4-Leaf Clover and Great 4-Leaf Clover to share the same approximately 11%
+  equipment item-drop effect. The effect activates only when used as an upgrade;
+  Great Clover differs only in rarity, and multiple Clovers on the same equipment do
+  not stack.
+- Clarified Rare Can as an approximately 3% rare-item drop boost that activates only
+  as a Weapon or Staff upgrade. It can stack with one Clover effect but not with
+  another Rare Can.
+- Extended the Green -> Red -> Yellow -> Blue Core sequence to Weapons and Staffs
+  when deliberately selected, while excluding farm tools. The optimizer warns that
+  using it on a weapon consumes four of nine offensive upgrade slots.
 - Ordered monster-drop sources by RF4 area progression, then alphabetically by monster
   name within the same first-available area. Locations inside a multi-location monster
   entry are also ordered from earliest to latest without splitting that monster into
@@ -54,6 +86,14 @@ All notable changes to the R4FS Forge Calculator are documented here. The projec
 
 ### Corrected
 
+- Corrected Clover handling that previously treated the upgrade effect as weapon-only.
+- Prevented range-bearing donor equipment from changing the range of the weapon being
+  crafted through base-stat inheritance or Light Ore.
+- Prevented the optimizer from silently choosing Glitta Augite -> 10-Fold Steel and
+  from returning arbitrary or impossible decimal range targets.
+- Corrected partial Four-Core messaging so users can deliberately keep individual
+  Cores for their ordinary stats and bonuses without the calculator rejecting the
+  material choice.
 - Fixed malformed, truncated, or incorrectly joined acquisition descriptions affecting
   propellers, Magic, Magic Crystal, Small Crystal, Gold, Iron, feathers, furs, shards,
   shared-location monsters, and names containing the letters `or`.
@@ -72,6 +112,9 @@ All notable changes to the R4FS Forge Calculator are documented here. The projec
 
 ### Validation
 
+- Added regression tests for weapon base ranges, attainable range generation, special-
+  effect slot reservation, Clover/Rare Can stacking warnings, weapon-only effects,
+  and the explicit Four-Core requirement sequence.
 - Verified every recipe category can produce a warning-free maximization plan: all
   weapon classes, Staffs, farm Tools, Shields, Headgear, Armor, Shoes, and Accessories.
 - Verified Dragon Slayer with Rune Legend and inherited Firewyrm Scales reaches 16,914

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { coreStatConversions, crossCategoryDonorAvailability, optimizerMaterialAllowed, scaleSpecialWarning } from "../app/optimizer-rules.ts";
+import { attainableWeaponRanges, coreStatConversions, crossCategoryDonorAvailability, nonStackingDropWarnings, optimizerMaterialAllowed, requiredSpecialUpgradeNames, scaleSpecialWarning, weaponBaseRange } from "../app/optimizer-rules.ts";
 
 const weapon={group:"Short Sword",type:"weapon"};
 const shield={group:"Shield",type:"armor"};
@@ -42,6 +42,9 @@ test("excludes weapon-only and elemental candidates from armor searches",()=>{
   assert.equal(optimizerMaterialAllowed({name:"Raccoon Leaf",category:"Misc."},weapon),true);
   assert.equal(optimizerMaterialAllowed({name:"Fire Crystal",category:"Crystals",element:"fire"},weapon),true);
   assert.equal(optimizerMaterialAllowed({name:"Dragonic Stone",category:"Minerals"},armor),true);
+  assert.equal(optimizerMaterialAllowed({name:"4-Leaf Clover",category:"Raw Ingredients"},armor),true);
+  assert.equal(optimizerMaterialAllowed({name:"Great 4-Leaf Clover",category:"Raw Ingredients"},armor),true);
+  assert.equal(optimizerMaterialAllowed({name:"Invisible Stone",category:"Misc."},armor),true);
 });
 
 test("enables cross-category donors only when a Weapon or Staff has two open slots",()=>{
@@ -57,4 +60,48 @@ test("enables cross-category donors only when a Weapon or Staff has two open slo
   assert.match(crossCategoryDonorAvailability({group:"Short Sword",type:"weapon"},5).reason,/No room for Light Ore/);
   assert.equal(crossCategoryDonorAvailability({group:"Shield",type:"armor"},2).allowed,false);
   assert.match(crossCategoryDonorAvailability({group:"Shield",type:"armor"},2).reason,/Weapons and Staffs only/);
+});
+
+test("derives range from the crafted weapon category",()=>{
+  assert.equal(weaponBaseRange("Short Sword"),1);
+  assert.equal(weaponBaseRange("Long Sword"),1.2);
+  assert.equal(weaponBaseRange("Spear"),1.8);
+  assert.equal(weaponBaseRange("Dual Blades"),.95);
+  assert.equal(weaponBaseRange("Gloves"),.95);
+  assert.equal(weaponBaseRange("Staff"),undefined);
+  assert.equal(weaponBaseRange("Tool"),undefined);
+});
+
+test("offers only attainable capped weapon ranges",()=>{
+  const ranges=attainableWeaponRanges("Short Sword");
+  assert.ok(ranges.includes(1));
+  assert.ok(ranges.includes(1.25));
+  assert.ok(ranges.includes(1.5));
+  assert.ok(ranges.includes(4));
+  assert.ok(!ranges.includes(1.333));
+  assert.ok(ranges.every(value=>value>=1&&value<=4));
+  assert.deepEqual(attainableWeaponRanges("Staff"),[]);
+  assert.deepEqual(attainableWeaponRanges("Spear",1),[1.8,2.05,2.3]);
+  assert.deepEqual(attainableWeaponRanges("Short Sword",7,4.5),[4]);
+});
+
+test("reserves required special-effect sequences before stat optimization",()=>{
+  assert.deepEqual(requiredSpecialUpgradeNames({
+    specialRequirements:["fourCore","clover","rareCan","invisibleStone","shadeStone"],
+    lowRarity:false,
+    forceTenfoldGlitta:true,
+    autoFourCore:false,
+  }),[
+    "Green Core","Red Core","Yellow Core","Blue Core",
+    "Great 4-Leaf Clover","Rare Can","Invisible Stone","Shade Stone",
+    "Glitta Augite","10-Fold Steel",
+  ]);
+  assert.deepEqual(requiredSpecialUpgradeNames({specialRequirements:["clover"],lowRarity:true,forceTenfoldGlitta:false,autoFourCore:false}),["4-Leaf Clover"]);
+});
+
+test("warns when presence-based drop effects are duplicated",()=>{
+  assert.deepEqual(nonStackingDropWarnings(["4-Leaf Clover"]),[]);
+  assert.equal(nonStackingDropWarnings(["4-Leaf Clover","Great 4-Leaf Clover"]).length,1);
+  assert.equal(nonStackingDropWarnings(["Rare Can","Rare Can"]).length,1);
+  assert.equal(nonStackingDropWarnings(["4-Leaf Clover","Rare Can"]).length,0);
 });

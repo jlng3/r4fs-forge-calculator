@@ -5,7 +5,7 @@ import { RECIPE_ROWS } from "./recipe-data";
 import { MATERIAL_ROWS } from "./material-data";
 import { EQUIPMENT_ROWS } from "./equipment-data";
 import { DATABASE_INGREDIENT_CATEGORIES, getMaterialDatabaseCategories, getMaterialSource } from "./material-source-data";
-import { coreStatConversions, crossCategoryDonorAvailability, optimizerMaterialAllowed, scaleSpecialWarning } from "./optimizer-rules";
+import { attainableWeaponRanges, coreStatConversions, crossCategoryDonorAvailability, nonStackingDropWarnings, optimizerMaterialAllowed, requiredSpecialUpgradeNames, scaleSpecialWarning, weaponBaseRange } from "./optimizer-rules";
 
 type ItemType = "weapon" | "staff" | "armor";
 type Element = "none" | "fire" | "water" | "earth" | "wind" | "light" | "dark" | "love" | "earth & wind" | "fire & water" | "light & dark" | "fire, water, earth & wind" | "fire, water, earth, wind, light & dark";
@@ -249,7 +249,9 @@ function calculate(type: ItemType, group: RecipeGroup | undefined, recipeName: s
   const equipmentDonors = forge.filter(s => !s.requiredLabel && s.material.equipment);
   if (group && BASE_OVERRIDE_GROUPS.has(group) && equipmentDonors.length > 1) warnings.push(`${group} supports only one base-stat donor equipment in its extra crafting slots.`);
   const overrideSlot = forge.find(s => !s.requiredLabel && s.overrideSelected && s.material.equipment);
-  let effectiveBase: Effects = { ...base };
+  const craftedRange=weaponBaseRange(group);
+  const isRangeWeapon=craftedRange!==undefined;
+  let effectiveBase: Effects = { ...base, ...(craftedRange===undefined?{}:{range:craftedRange}) };
   let effectiveElement = baseElement;
   if (overrideSlot?.material.equipment) {
     const source = overrideSlot.material.equipment;
@@ -263,7 +265,7 @@ function calculate(type: ItemType, group: RecipeGroup | undefined, recipeName: s
     else if (group === "Shoes" || group === "Accessory") warnings.push(`${group} cannot inherit base stats; it can only inherit special effects from same-category equipment.`);
     else warnings.push(`${source.group} cannot override ${group}; Light Ore only bridges different Weapon and Staff categories.`);
     if (valid) {
-      effectiveBase = { ...source.base };
+      effectiveBase = { ...source.base, ...(craftedRange===undefined?{}:{range:craftedRange}) };
       effectiveElement = source.element || "none";
       specialEffects.push(`Base-stat override: ${overrideSlot.material.name} (${source.group})${source.group !== group ? " via Light Ore" : ""}.`);
     }
@@ -327,17 +329,13 @@ function calculate(type: ItemType, group: RecipeGroup | undefined, recipeName: s
     const count = repeats[repeatKey] || 0;
     const decay = phase === "Upgrade" ? Math.pow(0.5, count) : 1;
     const factor = inverted ? -decay : decay;
-    addEffects(effects, m.effects, factor);
-    if (phase === "Upgrade" && type !== "armor" && m.name === "Raccoon Leaf") {
-      effects.range = (effects.range || 0) + 0.25 * decay;
-      trace.push(`Upgrade special: Raccoon Leaf added ${fmt(0.25 * decay)} weapon range.`);
-    }
-    if (phase === "Upgrade" && type !== "armor" && m.name === "Glitta Augite") {
-      effects.range = (effects.range || 0) + 0.5 * decay;
-      trace.push(`Upgrade special: Glitta Augite added ${fmt(0.5 * decay)} weapon range.`);
-    }
+    const printedEffects:Effects={...m.effects};
+    if(phase==="Upgrade"&&isRangeWeapon&&m.name==="Raccoon Leaf")printedEffects.range=(printedEffects.range||0)+.25;
+    if(phase==="Upgrade"&&isRangeWeapon&&m.name==="Glitta Augite")printedEffects.range=(printedEffects.range||0)+.5;
+    addEffects(effects, printedEffects, factor);
+    if(phase==="Upgrade"&&isRangeWeapon&&printedEffects.range)trace.push(`Upgrade special: ${m.name} added ${fmt((printedEffects.range||0)*factor)} weapon range.`);
     if (phase === "Upgrade") repeats[repeatKey] = count + 1;
-    previousPrinted = m.effects;
+    previousPrinted = printedEffects;
     if (m.element && type !== "armor") element = element === "none" ? m.element : "none";
     trace.push(`${phase}: ${m.name} applied at ${Math.round(decay * 100)}%${inverted ? ", reversed by Object X" : ""}.`);
   };
@@ -347,6 +345,11 @@ function calculate(type: ItemType, group: RecipeGroup | undefined, recipeName: s
   previousPrinted = null;
   upgrades.forEach(s => applySlot(s, "Upgrade"));
 
+  if(isRangeWeapon&&(effects.range||0)>4) {
+    effects.range=4;
+    trace.push("Weapon range reached the 4.0 maximum.");
+  }
+
   const all = [...forge, ...upgrades].filter(s => !s.material.id.startsWith("required-"));
   const totalLevel = all.reduce((sum, s) => sum + s.material.level, 0);
   const totalRarity = all.reduce((sum, s) => sum + (s.material.equipment ? 0 : s.material.rarity), 0);
@@ -355,21 +358,22 @@ function calculate(type: ItemType, group: RecipeGroup | undefined, recipeName: s
   addEffects(effects, lb); addEffects(effects, rb);
 
   const coreOrder = upgrades.map(s => s.material.core).filter((core): core is NonNullable<Material["core"]> => Boolean(core));
-  const orderedCoreBonus = type === "armor" && coreOrder.join(",") === "green,red,yellow,blue";
+  const orderedCoreBonus = group!=="Tool" && coreOrder.join(",") === "green,red,yellow,blue";
   if (orderedCoreBonus) {
     effects.noRes = (effects.noRes || 0) + 10;
     trace.push("Upgrade special: Green → Red → Yellow → Blue Cores added +10% non-elemental RES.");
   }
-  const isWeapon = type !== "armor";
+  const isWeapon = type !== "armor" && group !== "Tool";
   const fixedDamageOne = isWeapon && upgrades.some(s => s.material.name === "Scrap Metal+");
   const clovers = new Set(["4-Leaf Clover", "Great 4-Leaf Clover", "Giant 4-Leaf Clover"]);
-  const dropRateBoost = isWeapon && upgrades.some(s => clovers.has(s.material.name));
+  const cloverCount=upgrades.filter(s=>clovers.has(s.material.name)).length;
+  const dropRateBoost = cloverCount>0;
   const scaleShieldInheritance = group === "Shield" && upgrades.some(s => s.material.category === "Scales" && !["Wet Scale", "Wet Scales"].includes(s.material.name));
   if (fixedDamageOne) trace.push("Upgrade special: Scrap Metal+ fixes this weapon's damage at exactly 1.");
-  if (dropRateBoost) trace.push("Upgrade special: clover increased this weapon's item drop rate effect.");
+  if (dropRateBoost) trace.push("Upgrade special: clover activated the equipment's approximately 11% item-drop effect.");
   if (scaleShieldInheritance) trace.push("Upgrade special: a non-Wet Scale lets dual blades and fists inherit 50% of this shield's total stats.");
   if (fixedDamageOne) specialEffects.push("Fixed damage: this weapon always deals exactly 1 damage.");
-  if (dropRateBoost) specialEffects.push("Item drop rate increased by approximately 11% from a clover weapon upgrade.");
+  if (dropRateBoost) specialEffects.push("Clover: item drop rate increased by approximately 11% on this equipment.");
   if (scaleShieldInheritance) specialEffects.push("Dual blades and fists inherit 50% of this shield's total stats.");
   if (orderedCoreBonus) specialEffects.push("Core sequence: +10% non-elemental resistance.");
   if (inheritanceObjectXCount) specialEffects.push(`Inheritance Object X used ${inheritanceObjectXCount}×: reversal was contained within the donor material sequence and reset before upgrades.`);
@@ -382,19 +386,26 @@ function calculate(type: ItemType, group: RecipeGroup | undefined, recipeName: s
   if (hasUpgrade("Invisible Stone")) specialEffects.push("Invisible Stone: the finished equipment is invisible.");
   if (hasUpgrade("White Stone")) specialEffects.push("White Stone: greatly reduced damage applies when this is equipped by a family member.");
   if (isWeapon && hasUpgrade("Shade Stone")) specialEffects.push("Shade Stone: attacks decrease enemy elemental tolerance.");
-  if (isWeapon && hasUpgrade("Rare Can")) specialEffects.push("Rare Can: this weapon has an improved rare-item drop chance.");
+  if (isWeapon && hasUpgrade("Rare Can")) specialEffects.push("Rare Can: rare-item drop rate increased by approximately 3% on this weapon.");
   if (!isWeapon && hasUpgrade("Shade Stone")) warnings.push("Shade Stone's tolerance-reduction special effect applies to weapons only.");
   if (!isWeapon && hasUpgrade("Rare Can")) warnings.push("Rare Can's rare-drop special effect applies to weapons only.");
+  warnings.push(...nonStackingDropWarnings(upgrades.map(slot=>slot.material.name)));
 
   const upgradeOnly = new Set(["Scrap Metal+","Raccoon Leaf","Glitta Augite","4-Leaf Clover","Great 4-Leaf Clover","Giant 4-Leaf Clover","Invisible Stone","White Stone","Shade Stone","Rare Can"]);
   const misplaced = [...forge.filter(s => !s.requiredLabel), ...lineage.filter(s => s.contributes)].filter(s => upgradeOnly.has(s.material.name));
   if (misplaced.length) warnings.push(`${Array.from(new Set(misplaced.map(s => s.material.name))).join(", ")} special effects require the upgrade section.`);
-  const weaponOnlyUpgrades = upgrades.filter(s => upgradeOnly.has(s.material.name));
+  const weaponOnlyUpgradeNames=new Set(["Scrap Metal+","Raccoon Leaf","Glitta Augite","Shade Stone","Rare Can"]);
+  const weaponOnlyUpgrades = upgrades.filter(s => weaponOnlyUpgradeNames.has(s.material.name));
   if (!isWeapon && weaponOnlyUpgrades.length) warnings.push(`${Array.from(new Set(weaponOnlyUpgrades.map(s => s.material.name))).join(", ")} special effects apply to weapons only.`);
   if (upgrades.some(s => s.material.name === "Light Ore")) warnings.push("Light Ore must be used during crafting and only enables cross-category Weapon or Staff stat overrides.");
   if (lineage.some(s => s.contributes && s.material.name === "Light Ore")) warnings.push("Light Ore cannot be inherited from prior equipment; place it directly in the current crafting recipe.");
   if (type === "armor" && [...inherited,...upgrades].some(s=>s.material.element)) warnings.push("Elemental Crystal imbuement applies to weapons only; only the Crystal's printed stats apply here.");
-  if (coreOrder.length && !orderedCoreBonus) warnings.push(type !== "armor" ? "The colored Core resistance bonus applies to armor only." : `Colored Cores must be exactly Green → Red → Yellow → Blue; current Core order is ${coreOrder.map(c=>c[0].toUpperCase()+c.slice(1)).join(" → ")}.`);
+  if (coreOrder.length && !orderedCoreBonus) {
+    const currentCoreOrder=coreOrder.map(c=>c[0].toUpperCase()+c.slice(1)).join(" → ");
+    warnings.push(group==="Tool"
+      ? "The colored Core resistance sequence does not apply to farm tools. The Cores still contribute their normal printed stats and level/rarity values."
+      : `Four-Core effect inactive: all four Cores must be applied in the order Green → Red → Yellow → Blue. Current Core order: ${currentCoreOrder}. Partial or out-of-order Core use is still allowed for printed stats and level/rarity bonuses.`);
+  }
   const scaleUpgrades = upgrades.filter(s => s.material.category === "Scales");
   const scaleWarning=scaleSpecialWarning(group,scaleUpgrades.map(slot=>slot.material.name));
   if(scaleWarning)warnings.push(scaleWarning);
@@ -421,14 +432,14 @@ function specialDescription(material: Material) {
     "Scrap Metal+":"Weapon upgrade: fixes damage at exactly 1",
     "Raccoon Leaf":"Weapon upgrade: attack range +0.25",
     "Glitta Augite":"Weapon upgrade: attack range +0.5",
-    "4-Leaf Clover":"Weapon upgrade: item drop rate approximately +11%",
-    "Great 4-Leaf Clover":"Weapon upgrade: item drop rate approximately +11%",
+    "4-Leaf Clover":"Equipment upgrade: approximately +11% item-drop effect; does not stack with another Clover",
+    "Great 4-Leaf Clover":"Same approximately +11% equipment item-drop effect as 4-Leaf Clover; higher rarity only",
     "Giant 4-Leaf Clover":"Alias of Great 4-Leaf Clover",
     "Light Ore":"Crafting only: enables cross-category Weapon/Staff base-stat inheritance",
     "Invisible Stone":"Makes the finished equipment invisible",
     "White Stone":"Greatly reduces damage when worn by a family member",
     "Shade Stone":"Weapon attacks reduce enemy elemental tolerance",
-    "Rare Can":"Weapon upgrade: improves rare-item drop chance",
+    "Rare Can":"Weapon upgrade: rare-item drop rate approximately +3%; stacks with one Clover effect",
   };
   if (explicit[material.name]) parts.push(explicit[material.name]);
   if (material.category === "Scales" && material.name !== "Wet Scale") parts.push("Shield upgrade: dual blades/fists inherit 50% of shield stats");
@@ -688,7 +699,8 @@ function ResultGroup({title,keys,effects}:{title:string;keys:EffectKey[];effects
 type OptimizerObjective = "achieve" | "power" | "lowRarity" | "maximize";
 type OptimizerCoreKey = "atk" | "matk" | "def" | "mdef";
 type OptimizerElement = Element | "any";
-type OptimizerInput = { recipe: Recipe; targets: Effects; element: OptimizerElement; useOverride: boolean; crossCategoryDonor: boolean; donorId: string; abilityNames: string[]; objective: OptimizerObjective; maximizeKeys: OptimizerCoreKey[] };
+type OptimizerSpecialKey = "clover" | "rareCan" | "invisibleStone" | "shadeStone" | "fourCore";
+type OptimizerInput = { recipe: Recipe; targets: Effects; element: OptimizerElement; useOverride: boolean; crossCategoryDonor: boolean; donorId: string; abilityNames: string[]; objective: OptimizerObjective; maximizeKeys: OptimizerCoreKey[]; specialRequirements:OptimizerSpecialKey[]; forceTenfoldGlitta:boolean };
 type OptimizerPlan = {
   error?: string;
   feasible: boolean;
@@ -706,6 +718,8 @@ type OptimizerPlan = {
   elementMet: boolean;
   objective: OptimizerObjective;
   maximizeKeys: OptimizerCoreKey[];
+  specialRequirements:OptimizerSpecialKey[];
+  forceTenfoldGlitta:boolean;
 };
 
 const OPTIMIZER_TARGET_GROUPS: {title:string;keys:EffectKey[]}[] = [
@@ -715,10 +729,11 @@ const OPTIMIZER_TARGET_GROUPS: {title:string;keys:EffectKey[]}[] = [
   {title:"Status resistance",keys:["poisonRes","sealRes","paralysisRes","sleepRes","fatigueRes","sickRes","faintRes","drainRes","critRes","dizRes","knockRes"]},
 ];
 const OPTIMIZER_UPGRADE_ONLY = new Set(["Scrap Metal+","Raccoon Leaf","Glitta Augite","4-Leaf Clover","Great 4-Leaf Clover","Giant 4-Leaf Clover","Invisible Stone","White Stone","Shade Stone","Rare Can","Double Steel","10-Fold Steel"]);
+const OPTIMIZER_BINARY_SPECIALS = new Set(["4-Leaf Clover","Great 4-Leaf Clover","Giant 4-Leaf Clover","Invisible Stone","Shade Stone","Rare Can"]);
 const OPTIMIZER_MATERIALS = BUILTIN_MATERIALS.filter(m=>!m.equipment && m.name!=="Light Ore");
 const optimizerSlot = (material:Material, uid:string, contributes:boolean, patch:Partial<Slot>={}):Slot => ({uid,material:{...material,level:10},contributes,...patch});
 const optimizerValue = (result:ReturnType<typeof calculate>, key:EffectKey) => ["atk","matk","def","mdef"].includes(key) ? result.finalEffects[key] || 0 : result.effects[key] || 0;
-const optimizerHasPrintedEffect = (material:Material) => Object.values(material.effects).some(value=>Math.abs(value || 0)>0.0001);
+const optimizerHasPrintedEffect = (material:Material) => Object.values(material.effects).some(value=>Math.abs(value || 0)>0.0001)||["Raccoon Leaf","Glitta Augite"].includes(material.name);
 const optimizerObjectXActive = (prefix:Material[]) => prefix.filter(material=>material.special==="objectx").length%2===1;
 const optimizerBenefitsFromReversal = (material:Material) => {
   const values=Object.values(material.effects).filter(value=>Math.abs(value || 0)>0.0001);
@@ -750,7 +765,7 @@ function optimizerRequiredSlots(recipe:Recipe):Slot[] {
 }
 
 function optimizerCandidates(recipe:Recipe,targets:Effects,element:OptimizerElement,maximizeKeys:OptimizerCoreKey[]):Material[] {
-  const pool=OPTIMIZER_MATERIALS.filter(material=>optimizerMaterialAllowed(material,recipe));
+  const pool=OPTIMIZER_MATERIALS.filter(material=>optimizerMaterialAllowed(material,recipe)&&!OPTIMIZER_BINARY_SPECIALS.has(material.name));
   const chosen=new Map<string,Material>();
   const add=(m:Material|undefined)=>{if(m)chosen.set(normalizeMaterialName(m.name),m)};
   ["Double Steel","10-Fold Steel","Object X","Mealy Apple"].forEach(name=>add(pool.find(m=>m.name===name)));
@@ -787,9 +802,15 @@ function optimizerScore(result:ReturnType<typeof calculate>,targets:Effects,elem
 }
 
 export function optimizeBuild(input:OptimizerInput):OptimizerPlan {
-  const {recipe,targets,element,useOverride,crossCategoryDonor,donorId,abilityNames,objective,maximizeKeys}=input;
+  const {recipe,targets,element,useOverride,crossCategoryDonor,donorId,abilityNames,objective,maximizeKeys,specialRequirements,forceTenfoldGlitta}=input;
   const required=optimizerRequiredSlots(recipe);
   if(objective==="maximize"&&!maximizeKeys.length) return emptyOptimizerPlan(recipe,required,"Choose one or two effective core stats to maximize.",objective,maximizeKeys);
+  if((targets.range||0)>0&&weaponBaseRange(recipe.group)===undefined)return emptyOptimizerPlan(recipe,required,"Attack range can only be targeted for Short Swords, Long Swords, Spears, Axes, Hammers, Dual Blades, and Gloves.",objective,maximizeKeys,specialRequirements,forceTenfoldGlitta);
+  if(forceTenfoldGlitta&&weaponBaseRange(recipe.group)===undefined)return emptyOptimizerPlan(recipe,required,"10-Fold Steel + Glitta Augite is only available to weapon categories with attack range.",objective,maximizeKeys,specialRequirements,forceTenfoldGlitta);
+  if(specialRequirements.includes("fourCore")&&recipe.group==="Tool")return emptyOptimizerPlan(recipe,required,"The Four-Core resistance sequence does not apply to farm tools.",objective,maximizeKeys,specialRequirements,forceTenfoldGlitta);
+  if(specialRequirements.some(key=>key==="rareCan"||key==="shadeStone")&&recipe.type==="armor")return emptyOptimizerPlan(recipe,required,"Rare Can and Shade Stone special effects apply to weapons only.",objective,maximizeKeys,specialRequirements,forceTenfoldGlitta);
+  const requiredUpgradeNames=requiredSpecialUpgradeNames({specialRequirements,lowRarity:objective==="lowRarity",forceTenfoldGlitta,autoFourCore:(targets.noRes||0)>=10&&recipe.type==="armor"});
+  if(requiredUpgradeNames.length>9)return emptyOptimizerPlan(recipe,required,`The selected special effects require ${requiredUpgradeNames.length} upgrade slots, but equipment has only 9. Remove at least ${requiredUpgradeNames.length-9} requirement(s).`,objective,maximizeKeys,specialRequirements,forceTenfoldGlitta);
   const abilityMaterials=abilityNames.map(name=>EQUIPMENT_MATERIALS.find(m=>m.name===name)).filter((m):m is Material=>Boolean(m));
   if(abilityMaterials.length>3) return emptyOptimizerPlan(recipe,required,"Choose no more than three inherited equipment abilities.");
   if(abilityMaterials.some(m=>m.equipment?.group!==recipe.group)) return emptyOptimizerPlan(recipe,required,"Shoes and Accessories can only inherit same-category abilities.");
@@ -891,7 +912,8 @@ export function optimizeBuild(input:OptimizerInput):OptimizerPlan {
     const craftBeam=selectCraftStates(craftBuckets[effectSlots],120);
     if(!craftBeam.length)continue;
 
-    const corePrefix=(targets.noRes||0)>=10&&recipe.type==="armor"?["Green Core","Red Core","Yellow Core","Blue Core"].map(name=>OPTIMIZER_MATERIALS.find(m=>m.name===name)!).filter(Boolean):[];
+    const corePrefix=requiredUpgradeNames.map(name=>OPTIMIZER_MATERIALS.find(m=>m.name===name)!).filter(Boolean);
+    if(corePrefix.length!==requiredUpgradeNames.length||corePrefix.length>9)continue;
     type UpgradeState={craft:CraftState;materials:Material[];result:ReturnType<typeof calculate>;score:number};
     const selectUpgradeStates=(states:UpgradeState[],limit:number)=>{
       const selected:UpgradeState[]=[];
@@ -930,7 +952,8 @@ export function optimizeBuild(input:OptimizerInput):OptimizerPlan {
       const result=calculate(recipe.type,recipe.group,recipe.name,recipe.base,recipe.element||"none",[...structural,...direct,...fillers],[...carriedAbilitySlots,...carried],upgradeSlots,true);
       return {...state,result,score:optimizerScore(result,targets,element,objective,maximizeKeys)};
     });
-    const upgradeCandidates=corePrefix.length?candidates.filter(m=>!["Green Core","Red Core","Yellow Core","Blue Core"].includes(m.name)):candidates;
+    const requiredUpgradeSet=new Set(requiredUpgradeNames);
+    const upgradeCandidates=corePrefix.length?candidates.filter(m=>!requiredUpgradeSet.has(m.name)&&!(forceTenfoldGlitta&&m.special==="tenfold")):candidates;
     const objectX=upgradeCandidates.find(material=>material.special==="objectx");
     const mealyApple=upgradeCandidates.find(material=>material.name==="Mealy Apple");
     const tenfoldSteel=upgradeCandidates.find(material=>material.special==="tenfold");
@@ -951,7 +974,7 @@ export function optimizeBuild(input:OptimizerInput):OptimizerPlan {
           ordinaryCandidates.filter(material=>material.name!=="Mealy Apple").forEach(material=>additions.push([material]));
           if(objectX&&mealyApple&&length<=7)additions.push([objectX,mealyApple]);
           if(length<=7)for(const material of steelBaseCandidates) {
-            if(tenfoldSteel)additions.push([material,tenfoldSteel]);
+            if(tenfoldSteel&&(material.name!=="Glitta Augite"||forceTenfoldGlitta))additions.push([material,tenfoldSteel]);
             if(doubleSteel)additions.push([material,doubleSteel]);
           }
         }
@@ -1016,15 +1039,15 @@ export function optimizeBuild(input:OptimizerInput):OptimizerPlan {
     const unmet=(Object.keys(targets) as EffectKey[]).filter(k=>(targets[k]||0)>optimizerValue(finalist.result,k)+.0001).map(key=>({key,target:targets[key]||0,actual:optimizerValue(finalist.result,key)}));
     const elementMet=element==="any"||finalist.result.element===element;
     const score=optimizerScore(finalist.result,targets,element,objective,maximizeKeys,true);
-    const plan:OptimizerPlan={feasible:unmet.length===0&&elementMet&&finalist.result.warnings.length===0,recipe,donor,usesLightOre,required,abilityDonors,directExtras,carried,fillers,upgrades,result:finalist.result,unmet,elementMet,objective,maximizeKeys};
+    const plan:OptimizerPlan={feasible:unmet.length===0&&elementMet&&finalist.result.warnings.length===0,recipe,donor,usesLightOre,required,abilityDonors,directExtras,carried,fillers,upgrades,result:finalist.result,unmet,elementMet,objective,maximizeKeys,specialRequirements,forceTenfoldGlitta};
     if(score<bestScore){best=plan;bestScore=score}
   }
   return best||emptyOptimizerPlan(recipe,required,"No valid slot layout was found. Try disabling donors or reducing inherited abilities.");
 }
 
-function emptyOptimizerPlan(recipe:Recipe,required:Slot[],error:string,objective:OptimizerObjective="achieve",maximizeKeys:OptimizerCoreKey[]=[]):OptimizerPlan {
+function emptyOptimizerPlan(recipe:Recipe,required:Slot[],error:string,objective:OptimizerObjective="achieve",maximizeKeys:OptimizerCoreKey[]=[],specialRequirements:OptimizerSpecialKey[]=[],forceTenfoldGlitta=false):OptimizerPlan {
   const result=calculate(recipe.type,recipe.group,recipe.name,recipe.base,recipe.element||"none",required,[],[],true);
-  return {error,feasible:false,recipe,usesLightOre:false,required,abilityDonors:[],directExtras:[],carried:[],fillers:[],upgrades:[],result,unmet:[],elementMet:true,objective,maximizeKeys};
+  return {error,feasible:false,recipe,usesLightOre:false,required,abilityDonors:[],directExtras:[],carried:[],fillers:[],upgrades:[],result,unmet:[],elementMet:true,objective,maximizeKeys,specialRequirements,forceTenfoldGlitta};
 }
 
 function BuildOptimizer() {
@@ -1039,6 +1062,8 @@ function BuildOptimizer() {
   const [abilityNames,setAbilityNames]=useState<string[]>([]);
   const [objective,setObjective]=useState<OptimizerObjective>("achieve");
   const [maximizeKeys,setMaximizeKeys]=useState<OptimizerCoreKey[]>([]);
+  const [specialRequirements,setSpecialRequirements]=useState<OptimizerSpecialKey[]>([]);
+  const [forceTenfoldGlitta,setForceTenfoldGlitta]=useState(false);
   const [plan,setPlan]=useState<OptimizerPlan|null>(null);
   const [running,setRunning]=useState(false);
   const recipe=RECIPES.find(r=>r.id===recipeId);
@@ -1050,24 +1075,31 @@ function BuildOptimizer() {
     return m.equipment.group===recipe.group;
   }):[];
   const abilityOptions=recipe&&["Accessory","Shoes"].includes(recipe.group)?EQUIPMENT_MATERIALS.filter(m=>m.equipment?.group===recipe.group&&m.equipment.ability):[];
+  const reservedSpecialUpgrades=recipe?requiredSpecialUpgradeNames({specialRequirements,lowRarity:objective==="lowRarity",forceTenfoldGlitta,autoFourCore:false}):[];
+  const rangeOptions=recipe?attainableWeaponRanges(recipe.group,9-reservedSpecialUpgrades.length,forceTenfoldGlitta?4.5:0):[];
+  const isRangeWeapon=rangeOptions.length>0;
+  const isWeaponEquipment=Boolean(recipe&&recipe.type!=="armor"&&recipe.group!=="Tool");
   const toggleMaximizeKey=(key:OptimizerCoreKey)=>setMaximizeKeys(current=>current.includes(key)?current.filter(k=>k!==key):current.length<2?[...current,key]:[current[1],key]);
+  const toggleSpecial=(key:OptimizerSpecialKey)=>setSpecialRequirements(current=>current.includes(key)?current.filter(item=>item!==key):[...current,key]);
   const run=()=>{
     if(!recipe){setPlan(null);return}
     setRunning(true);
     setTimeout(()=>{
-      setPlan(optimizeBuild({recipe,targets,element,useOverride,crossCategoryDonor,donorId,abilityNames:inheritAbilities?abilityNames:[],objective,maximizeKeys}));
+      setPlan(optimizeBuild({recipe,targets,element,useOverride,crossCategoryDonor,donorId,abilityNames:inheritAbilities?abilityNames:[],objective,maximizeKeys,specialRequirements,forceTenfoldGlitta}));
       setRunning(false);
     },20);
   };
   return <div className="optimizer-workspace">
     <section className="panel optimizer-input">
       <div className="section-head"><div><span className="eyebrow">GOAL INPUT</span><h2>Build optimizer</h2><p className="optimizer-intro">Set minimum outcomes or maximize effective core stats. The search assumes Forging/Crafting Lv. 50+ and Level 10 materials.</p></div></div>
-      <div className="optimizer-recipe"><label><span>Find equipment</span><input placeholder="Search recipe…" value={recipeSearch} onChange={e=>setRecipeSearch(e.target.value)}/></label><label><span>Equipment</span><select value={recipeId} onChange={e=>{setRecipeId(e.target.value);setPlan(null);setAbilityNames([]);setUseOverride(false);setCrossCategoryDonor(false);setDonorId("auto")}}><option value="">Choose equipment…</option>{Array.from(new Set(visibleRecipes.map(r=>r.group))).map(group=><optgroup key={group} label={group}>{visibleRecipes.filter(r=>r.group===group).map(r=><option key={r.id} value={r.id}>{r.name} · Lv {r.level}</option>)}</optgroup>)}</select></label></div>
+      <div className="optimizer-recipe"><label><span>Find equipment</span><input placeholder="Search recipe…" value={recipeSearch} onChange={e=>setRecipeSearch(e.target.value)}/></label><label><span>Equipment</span><select value={recipeId} onChange={e=>{setRecipeId(e.target.value);setPlan(null);setAbilityNames([]);setUseOverride(false);setCrossCategoryDonor(false);setDonorId("auto");setTargets(current=>({...current,range:0}));setSpecialRequirements([]);setForceTenfoldGlitta(false)}}><option value="">Choose equipment…</option>{Array.from(new Set(visibleRecipes.map(r=>r.group))).map(group=><optgroup key={group} label={group}>{visibleRecipes.filter(r=>r.group===group).map(r=><option key={r.id} value={r.id}>{r.name} · Lv {r.level}</option>)}</optgroup>)}</select></label></div>
       <div className="optimizer-options"><label><span>Desired element</span><select value={element} onChange={e=>setElement(e.target.value as OptimizerElement)}><option value="any">Any</option><option value="none">Non-elemental</option>{ELEMENTS.map(e=><option key={e.key} value={e.key}>{e.label}</option>)}</select></label><label><span>Optimization goal</span><select value={objective} onChange={e=>{setObjective(e.target.value as OptimizerObjective);setPlan(null)}}><option value="achieve">Meet all minimums</option><option value="maximize">Maximize core stat(s)</option><option value="power">Exceed entered targets</option><option value="lowRarity">Meet targets with lower rarity</option></select></label></div>
       {objective==="maximize"&&<div className="maximize-stat-picker"><div><b>Effective stats to maximize</b><small>Choose one or two. ATK includes STR, M.ATK includes INT, and DEF/M.DEF each include 0.5 × VIT.</small></div><div>{(["atk","matk","def","mdef"] as OptimizerCoreKey[]).map(key=><button type="button" key={key} className={maximizeKeys.includes(key)?"selected":""} onClick={()=>toggleMaximizeKey(key)}>{KEYS.find(k=>k.key===key)?.label}</button>)}</div></div>}
       {recipe&&BASE_OVERRIDE_GROUPS.has(recipe.group)&&<div className="optimizer-toggle-card"><label><input type="checkbox" checked={useOverride} onChange={e=>{setUseOverride(e.target.checked);if(!e.target.checked){setCrossCategoryDonor(false);setDonorId("auto")}}}/><span><b>Use a base-stat donor</b><small>Consumes one extra crafting slot. The default search uses donors from the same equipment category.</small></span></label>{useOverride&&<><label><input type="checkbox" checked={crossCategoryDonor} disabled={!crossCategoryAvailability.allowed} onChange={e=>{setCrossCategoryDonor(e.target.checked);setDonorId("auto");setPlan(null)}}/><span><b>Use a cross-category donor with Light Ore</b><small>{crossCategoryAvailability.reason}</small></span></label><select value={donorId} onChange={e=>setDonorId(e.target.value)}><option value="auto">Auto-select best {crossCategoryDonor?"cross-category":"same-category"} donor</option>{donorOptions.map(m=><option key={m.id} value={m.id}>{m.name} · {m.equipment?.group}</option>)}</select></>}</div>}
       {recipe&&["Accessory","Shoes"].includes(recipe.group)&&<div className="optimizer-toggle-card"><label><input type="checkbox" checked={inheritAbilities} onChange={e=>{setInheritAbilities(e.target.checked);if(!e.target.checked)setAbilityNames([])}}/><span><b>Inherit extra special effects</b><small>Select up to three same-category effects. Each consumes an empty crafting slot and one Barrett inheritance result.</small></span></label>{inheritAbilities&&<select multiple size={6} value={abilityNames} onChange={e=>setAbilityNames(Array.from(e.target.selectedOptions).map(o=>o.value).slice(0,3))}>{abilityOptions.map(m=><option key={m.id} value={m.name}>{m.name} — {m.equipment?.ability}</option>)}</select>}</div>}
-      <div className="optimizer-targets">{OPTIMIZER_TARGET_GROUPS.map((group,index)=><details key={group.title} open={index===0}><summary>{group.title}<span>{group.keys.filter(k=>(targets[k]||0)>0).length} targets</span></summary><div className="target-grid">{group.keys.map(key=>{const meta=KEYS.find(k=>k.key===key)!;return <label key={key}><span>{meta.label}{meta.unit||""}</span><input type="number" min="0" step="0.5" placeholder="No minimum" value={targets[key]||""} onChange={e=>setTargets({...targets,[key]:Math.max(0,Number(e.target.value))})}/></label>})}</div></details>)}</div>
+      <div className="optimizer-toggle-card special-requirements"><div><b>Required special effects</b><small>Selected effects are hard requirements and reserve their upgrade slots before stat optimization.</small></div><label><input type="checkbox" checked={specialRequirements.includes("clover")} onChange={()=>toggleSpecial("clover")}/><span><b>Clover item-drop boost</b><small>Uses one Clover; approximately +11%. Great Clover differs only in rarity.</small></span></label><label><input type="checkbox" checked={specialRequirements.includes("rareCan")} disabled={!isWeaponEquipment} onChange={()=>toggleSpecial("rareCan")}/><span><b>Rare Can rare-drop boost</b><small>{isWeaponEquipment?"Uses one Rare Can; approximately +3% and stacks with Clover.":"Weapon and Staff upgrade only."}</small></span></label><label><input type="checkbox" checked={specialRequirements.includes("invisibleStone")} onChange={()=>toggleSpecial("invisibleStone")}/><span><b>Invisible equipment</b><small>Uses one Invisible Stone.</small></span></label><label><input type="checkbox" checked={specialRequirements.includes("shadeStone")} disabled={!isWeaponEquipment} onChange={()=>toggleSpecial("shadeStone")}/><span><b>Shade Stone tolerance reduction</b><small>{isWeaponEquipment?"Uses one Shade Stone.":"Weapon and Staff upgrade only."}</small></span></label><label className={isWeaponEquipment?"caution-option":""}><input type="checkbox" checked={specialRequirements.includes("fourCore")} disabled={!recipe||recipe.group==="Tool"} onChange={()=>toggleSpecial("fourCore")}/><span><b>{isWeaponEquipment?"Use Four-Core sequence on this Weapon":"Four-Core non-elemental resistance"}</b><small>{isWeaponEquipment?"Consumes four of nine Weapon upgrade slots for +10% non-elemental resistance; offensive potential will usually fall.":recipe?.group==="Tool"?"Not available for farm tools.":"Green → Red → Yellow → Blue; consumes four upgrade slots."}</small></span></label></div>
+      {isRangeWeapon&&<div className="optimizer-toggle-card caution-option"><label><input type="checkbox" checked={forceTenfoldGlitta} onChange={e=>setForceTenfoldGlitta(e.target.checked)}/><span><b>Force Glitta Augite → 10-Fold Steel</b><small>Deliberately spends 10-Fold Steel on range. Off by default so it remains available for stronger stat upgrades.</small></span></label></div>}
+      <div className="optimizer-targets">{OPTIMIZER_TARGET_GROUPS.map((group,index)=><details key={group.title} open={index===0}><summary>{group.title}<span>{group.keys.filter(k=>(targets[k]||0)>0).length} targets</span></summary><div className="target-grid">{group.keys.map(key=>{const meta=KEYS.find(k=>k.key===key)!;if(key==="range")return <label key={key} className="range-target"><span>Minimum Range</span><select disabled={!isRangeWeapon} value={targets.range||""} onChange={e=>setTargets({...targets,range:Number(e.target.value)})}><option value="">{recipe&&!isRangeWeapon?"Not applicable":"No minimum"}</option>{rangeOptions.map(value=><option key={value} value={value}>{value.toFixed(value%1===0?1:Math.min(4,(String(value).split(".")[1]||"").length))}</option>)}</select></label>;return <label key={key}><span>{meta.label}{meta.unit||""}</span><input type="number" min="0" step="0.5" placeholder="No minimum" value={targets[key]||""} onChange={e=>setTargets({...targets,[key]:Math.max(0,Number(e.target.value))})}/></label>})}</div></details>)}</div>
       <button className="primary optimizer-run" disabled={!recipe||running||(objective==="maximize"&&!maximizeKeys.length)} onClick={run}>{running?"Searching materials and sequences…":objective==="maximize"?"Find highest effective stats":"Generate optimized plan"}</button>
       <p className="optimizer-disclaimer">A found plan is fully validated by the calculator. Maximization reports the highest result found by the bounded search, including derived STR/INT/VIT contributions; it is not a formal proof that no higher combination exists.</p>
     </section>
